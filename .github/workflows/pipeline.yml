@@ -1,0 +1,107 @@
+name: SehatSaathi CI/CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-southeast-2
+  BUCKET: sehatsaathi-artifacts-anusha27095
+  INSTANCE_ID: i-098dab73f016bd395
+  LIVE_URL: http://3.25.130.111
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  semgrep:
+    name: Security - Semgrep (SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install semgrep
+      - run: semgrep scan --config p/python --error --metrics=off services lambda
+
+  gitleaks:
+    name: Security - Gitleaks (secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build and upload to S3
+    needs: [test, semgrep, gitleaks]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package build
+        run: |
+          cd services/patient
+          zip -r ../../build-v${{ github.run_number }}.zip main.py VERSION requirements.txt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Upload artifact to S3
+        run: |
+          aws s3 cp build-v${{ github.run_number }}.zip s3://$BUCKET/builds/build-v${{ github.run_number }}.zip
+          aws s3 cp build-v${{ github.run_number }}.zip s3://$BUCKET/builds/latest.zip
+
+  deploy:
+    name: Deploy latest build from S3 to EC2
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy via SSM
+        run: |
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids $INSTANCE_ID \
+            --document-name AWS-RunShellScript \
+            --parameters 'commands=["set -e","aws s3 cp s3://${{ env.BUCKET }}/builds/latest.zip /tmp/latest.zip --region ${{ env.AWS_REGION }}","rm -rf /opt/app/current/*","unzip -o /tmp/latest.zip -d /opt/app/current","/opt/venv/bin/pip install -r /opt/app/current/requirements.txt","systemctl restart sehat"]' \
+            --query Command.CommandId --output text)
+          aws ssm wait command-executed --command-id $CMD_ID --instance-id $INSTANCE_ID
+          aws ssm get-command-invocation --command-id $CMD_ID --instance-id $INSTANCE_ID --query Status --output text
+
+  verify:
+    name: Verify live production
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check live version
+        run: |
+          EXPECTED=$(cat services/patient/VERSION)
+          for i in $(seq 1 12); do
+            RESP=$(curl -s --max-time 5 $LIVE_URL/version || true)
+            echo "Live response: $RESP"
+            if echo "$RESP" | grep -q "$EXPECTED"; then
+              echo "LIVE VERSION MATCHES: $EXPECTED"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Live app does not show $EXPECTED"
+          exit 1
