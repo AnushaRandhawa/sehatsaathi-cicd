@@ -47,9 +47,39 @@ def version():
     return {"service": "patient", "version": VERSION}
 
 
+HOME_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SehatSaathi</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:Segoe UI,Arial,sans-serif;background:linear-gradient(135deg,#0f766e,#0ea5e9);color:#0f172a}
+.card{background:#fff;border-radius:20px;padding:40px;max-width:560px;width:92%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.logo{font-size:48px}
+h1{margin:8px 0 4px;font-size:32px;color:#0f766e}
+.sub{color:#475569;margin:0 0 24px}
+.ver{display:inline-block;background:#ecfeff;color:#0e7490;border:2px solid #67e8f9;border-radius:999px;padding:10px 26px;font-size:30px;font-weight:700;margin-bottom:24px}
+.links a{display:inline-block;margin:6px;padding:10px 20px;border-radius:10px;background:#0f766e;color:#fff;text-decoration:none;font-weight:600}
+.links a:hover{background:#115e59}
+.foot{margin-top:24px;font-size:13px;color:#64748b}
+</style></head><body>
+<div class="card">
+<div class="logo">&#127973;</div>
+<h1>SehatSaathi</h1>
+<p class="sub">Hospital Appointment &amp; Queue System &middot; Patient Service</p>
+<div class="ver">Version __VERSION__</div>
+<div class="links">
+<a href="/docs">API Docs (Swagger)</a>
+<a href="/health">Health</a>
+<a href="/version">Version JSON</a>
+</div>
+<p class="foot">Deployed automatically by GitHub Actions &rarr; S3 &rarr; EC2</p>
+</div></body></html>"""
+
+
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return f"<h1>SehatSaathi Patient Service</h1><p>Version: {VERSION}</p>"
+    return HOME_HTML.replace("__VERSION__", VERSION)
 
 
 @app.post("/patients", status_code=201)
