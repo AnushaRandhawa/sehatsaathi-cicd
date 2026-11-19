@@ -1,0 +1,3 @@
+-r services/patient/requirements.txt
+pytest
+httpx
