@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install semgrep
-      - run: semgrep scan --config p/python --error --metrics=off services lambda
+      - run: semgrep scan --config p/python --config p/security-audit --config p/secrets --error --metrics=off services lambda
 
   gitleaks:
     name: Security - Gitleaks (secrets)
@@ -45,9 +45,34 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  pip-audit:
+    name: Security - pip-audit (dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pip-audit
+      - run: pip-audit -r services/patient/requirements.txt
+
+  codeql:
+    name: Security - CodeQL (SAST)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+      - uses: github/codeql-action/analyze@v3
+
   build:
     name: Build and upload to S3
-    needs: [test, semgrep, gitleaks]
+    needs: [test, semgrep, gitleaks, pip-audit, codeql]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
