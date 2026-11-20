@@ -4,6 +4,8 @@ import os
 import uuid
 
 import psycopg
+import html
+import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -69,6 +71,7 @@ h1{margin:8px 0 4px;font-size:32px;color:#0f766e}
 <p class="sub">Hospital Appointment &amp; Queue System &middot; Patient Service</p>
 <div class="ver">Version __VERSION__</div>
 <div class="links">
+<a href="/db">Patients DB</a>
 <a href="/docs">API Docs (Swagger)</a>
 <a href="/health">Health</a>
 <a href="/version">Version JSON</a>
@@ -80,6 +83,29 @@ h1{margin:8px 0 4px;font-size:32px;color:#0f766e}
 @app.get("/", response_class=HTMLResponse)
 def home():
     return HOME_HTML.replace("__VERSION__", VERSION)
+
+
+@app.get("/db", response_class=HTMLResponse)
+def db_view():
+    conn = sqlite3.connect(":memory:")
+    conn.executescript((Path(__file__).parent / "seed.sql").read_text())
+    cur = conn.execute("SELECT * FROM patients ORDER BY id")
+    cols = [c[0] for c in cur.description]
+    rows = cur.fetchall()
+    conn.close()
+    th = "".join(f"<th>{html.escape(c)}</th>" for c in cols)
+    body = "".join(
+        "<tr>" + "".join(f"<td>{html.escape(str(v))}</td>" for v in r) + "</tr>"
+        for r in rows
+    )
+    return (
+        "<style>body{font-family:Segoe UI,Arial;margin:40px}"
+        "table{border-collapse:collapse}th,td{border:1px solid #94a3b8;padding:8px 16px}"
+        "th{background:#0f766e;color:#fff}</style>"
+        f"<h2>SehatSaathi - patients table ({html.escape(VERSION)})</h2>"
+        f"<p>{len(rows)} rows</p><table><tr>{th}</tr>{body}</table>"
+        '<p><a href="/">Back</a></p>'
+    )
 
 
 @app.post("/patients", status_code=201)
