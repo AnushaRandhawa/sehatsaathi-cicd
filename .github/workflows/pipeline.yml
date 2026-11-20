@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   AWS_REGION: ap-southeast-2
   BUCKET: sehatsaathi-artifacts-anusha27095
@@ -70,9 +73,37 @@ jobs:
           languages: python
       - uses: github/codeql-action/analyze@v3
 
+  bandit:
+    name: Security - Bandit (Python SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install bandit
+      - name: Report medium and above (informational)
+        run: bandit -r services lambda -ll || true
+      - name: Fail on high severity
+        run: bandit -r services lambda -lll
+
+  checkov:
+    name: Security - Checkov (workflow and Dockerfile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install checkov
+      - name: Scan GitHub Actions workflow (gate)
+        run: checkov -d . --framework github_actions --compact --quiet
+      - name: Scan Dockerfiles (report only)
+        run: checkov -d . --framework dockerfile --compact --quiet --soft-fail
+
   build:
     name: Build and upload to S3
-    needs: [test, semgrep, gitleaks, pip-audit, codeql]
+    needs: [test, semgrep, gitleaks, pip-audit, codeql, bandit, checkov]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
