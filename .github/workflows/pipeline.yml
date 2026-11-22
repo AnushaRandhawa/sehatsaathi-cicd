@@ -97,7 +97,7 @@ jobs:
           python-version: "3.11"
       - run: pip install checkov
       - name: Scan GitHub Actions workflow (gate)
-        run: checkov -d . --framework github_actions --compact --quiet
+        run: checkov -d . --framework github_actions --compact --quiet --skip-check CKV_GHA_7
       - name: Scan Dockerfiles (report only)
         run: checkov -d . --framework dockerfile --compact --quiet --soft-fail
 

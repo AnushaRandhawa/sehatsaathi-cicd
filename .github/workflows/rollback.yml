@@ -1,0 +1,59 @@
+name: Rollback to a previous build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "Build number to restore (for example 1 restores build-v1.zip)"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-2
+  BUCKET: sehatsaathi-artifacts-anusha27095
+  INSTANCE_ID: i-098dab73f016bd395
+  LIVE_URL: http://3.25.130.111
+
+jobs:
+  rollback:
+    name: Redeploy an older build from S3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate build number
+        env:
+          BUILD: ${{ inputs.build_number }}
+        run: |
+          if ! [[ "$BUILD" =~ ^[0-9]+$ ]]; then
+            echo "Build number must contain digits only"
+            exit 1
+          fi
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Make the chosen build the latest build
+        env:
+          BUILD: ${{ inputs.build_number }}
+        run: aws s3 cp s3://$BUCKET/builds/build-v${BUILD}.zip s3://$BUCKET/builds/latest.zip
+      - name: Deploy via SSM
+        run: |
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids $INSTANCE_ID \
+            --document-name AWS-RunShellScript \
+            --parameters 'commands=["set -e","aws s3 cp s3://${{ env.BUCKET }}/builds/latest.zip /tmp/latest.zip --region ${{ env.AWS_REGION }}","rm -rf /opt/app/current/*","unzip -o /tmp/latest.zip -d /opt/app/current","/opt/venv/bin/pip install -r /opt/app/current/requirements.txt","systemctl restart sehat"]' \
+            --query Command.CommandId --output text)
+          aws ssm wait command-executed --command-id $CMD_ID --instance-id $INSTANCE_ID
+          aws ssm get-command-invocation --command-id $CMD_ID --instance-id $INSTANCE_ID --query Status --output text
+      - name: Show live version
+        run: |
+          sleep 5
+          for i in $(seq 1 12); do
+            RESP=$(curl -s --max-time 5 $LIVE_URL/version || true)
+            echo "Live response: $RESP"
+            if [ -n "$RESP" ]; then exit 0; fi
+            sleep 5
+          done
+          exit 1
