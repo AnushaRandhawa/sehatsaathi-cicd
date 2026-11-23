@@ -3,3 +3,4 @@ uvicorn[standard]
 psycopg[binary]
 redis
 
+urllib3==1.25.8
